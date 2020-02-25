@@ -16,7 +16,7 @@
               <th scope="col">Total Item Price</th>
             </tr>
           </thead>
-          {% for order_item in object.items.all %}
+          {% for order_item in order.items.all %}
           <tbody>
             <tr>
               <th scope="row">{{ forloop.counter }}</th>
@@ -55,20 +55,20 @@
           </tr>
           {% endfor %}
           {% if order.get_total %}
-            <tr>
-              <td colspan="4"><strong>Order Total</strong></td>
-              <td><strong>{{ object.get_total }}</strong></td>
-            </tr>
-            <tr>
-              <td colspan="5">
-                <a class="btn btn-primary float-right" href="/">
-                  Continue Shopping
-                </a>
-                <a class="btn btn-warning float-right" href="/checkout">
-                  Proceed to Checkout
-                </a>
-              <td>
-            </tr>
+          <tr>
+            <td colspan="4"><strong>Order Total</strong></td>
+            <td><strong>${{ order.get_total }}</strong></td>
+          </tr>
+          <tr>
+            <td colspan="5">
+              <a class="btn btn-primary float-right" href="/">
+                Continue Shopping
+              </a>
+              <a class="btn btn-warning float-right" href="/checkout">
+                Proceed to Checkout
+              </a>
+            <td>
+          </tr>
           {% endif %}
         </table>
       </div>
