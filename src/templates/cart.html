@@ -54,6 +54,12 @@
             </td>
           </tr>
           {% endfor %}
+          {% if order.coupon %}
+          <tr>
+            <td colspan="4"><strong>Coupon</strong></td>
+            <td><strong>-${{ order.coupon.amount }} ({{ order.coupon.code }})</strong></td>
+          </tr>
+          {% endif %}
           {% if order.get_total %}
           <tr>
             <td colspan="4"><strong>Order Total</strong></td>

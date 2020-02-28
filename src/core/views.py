@@ -8,8 +8,8 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.generic import DetailView, ListView, View
 
-from .forms import CheckoutForm
-from .models import BillingAddress, Item, Order, OrderItem, Payment
+from .forms import CheckoutForm, CouponForm
+from .models import BillingAddress, Coupon, Item, Order, OrderItem, Payment
 
 stripe.api_key = settings.STRIPE_SECRET_KEY
 stripe_publishable_key = settings.STRIPE_PUBLISHABLE_KEY
@@ -23,9 +23,21 @@ def products(request):
 
 class CheckoutView(View):
     def get(self, *args, **kwargs):
-        form = CheckoutForm()
-        context = {'form': form}
-        return render(self.request, "checkout.html", context)
+        try:
+            order = Order.objects.get(user=self.request.user, ordered=False)
+            form = CheckoutForm()
+
+            context = {
+                'form': form,
+                'order': order,
+                'couponform': CouponForm(),
+                "DISPLAY_COUPON_FORM": True,
+            }
+
+            return render(self.request, "checkout.html", context)
+        except ObjectDoesNotExist:
+            messages.info(self.request, "You do not have an active order")
+            return redirect("/")
 
     def post(self, *args, **kwargs):
         form = CheckoutForm(self.request.POST or None)
@@ -62,7 +74,7 @@ class CheckoutView(View):
                 elif payment_option == 'P':
                     return redirect('core:payment', payment_option='paypal')
                 else:
-                    message.warning(
+                    messages.warning(
                         self.request,
                         "Invalid payment option selected.",
                     )
@@ -73,24 +85,30 @@ class CheckoutView(View):
             messages.warning(self.request, "Failed Checkout")
             return redirect("core:checkout")
         except ObjectDoesNotExist:
-            messages.error(self.request, 'You do not have an active order')
+            messages.warning(self.request, 'You do not have an active order')
             return redirect("core:cart")
 
 
 class PaymentView(View):
     def get(self, *args, **kwargs):
         order = Order.objects.get(user=self.request.user, ordered=False)
-        context = {
-            "stripe_publishable_key": stripe_publishable_key,
-            "order": order
-        }
+        if order.billing_address:
+            context = {
+                "stripe_publishable_key": stripe_publishable_key,
+                "order": order,
+                "DISPLAY_COUPON_FORM": False,
+            }
 
-        return render(self.request, "payment.html", context)
+            return render(self.request, "payment.html", context)
+        else:
+            messages.warning(
+                self.request,
+                'You have not added a billing address',
+            )
+            return redirect("core:checkout")
 
     def post(self, *args, **kwargs):
-        print(self.request.user)
         order = Order.objects.get(user=self.request.user, ordered=False)
-        print(order)
         token = self.request.POST.get('stripeToken')
         amount = int(order.get_total()) * 100
 
@@ -108,6 +126,11 @@ class PaymentView(View):
             payment.amount = order.get_total()
             payment.save()
 
+            order_items = order.items.all()
+            order_items.update(ordered=True)
+            for item in order_items:
+                item.save()
+
             # assign the payment to the order
             order.ordered = True
             order.payment = payment
@@ -119,7 +142,7 @@ class PaymentView(View):
         except stripe.error.CardError as e:
             body = e.json_body
             err = body.get('error', {})
-            messages.error(self.request, f"{err.get('message')}")
+            messages.warning(self.request, f"{err.get('message')}")
 
             return redirect("/")
 
@@ -175,7 +198,7 @@ class OrderSummaryView(LoginRequiredMixin, View):
             order = Order.objects.get(user=self.request.user, ordered=False)
             context = {'order': order}
         except ObjectDoesNotExist:
-            messages.error(self.request, 'You do not have an active order')
+            messages.warning(self.request, 'You do not have an active order')
             return redirect("/")
 
         return render(self.request, 'cart.html', context)
@@ -273,3 +296,35 @@ def remove_single_item_from_cart(request, slug):
     else:
         messages.info(request, "You do not have an active order.")
         return redirect("core:product", slug=slug)
+
+
+def get_coupon(request, code):
+    try:
+        coupon = Coupon.objects.get(code=code)
+
+        return coupon
+    except ObjectDoesNotExist:
+        messages.info(request, "This coupon does not exist")
+
+        return redirect("core:checkout")
+
+
+class AddCouponView(View):
+    def post(self, *args, **kwargs):
+        form = CouponForm(self.request.POST or None)
+        if form.is_valid():
+            try:
+                code = form.cleaned_data.get("code")
+                order = Order.objects.get(
+                    user=self.request.user,
+                    ordered=False,
+                )
+                order.coupon = get_coupon(self.request, code)
+                order.save()
+
+                messages.success(self.request, "Successfully added coupon")
+                return redirect("core:checkout")
+
+            except ObjectDoesNotExist:
+                messages.info(self.request, "You do not have an active order")
+                return redirect("/")
